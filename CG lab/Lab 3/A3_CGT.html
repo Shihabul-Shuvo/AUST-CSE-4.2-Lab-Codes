@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Assignment</title>
+    <style>
+        canvas {
+            display: block;
+            margin: auto;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="webglcanvas" width="800" height="800"></canvas>
+
+    <script>
+        var vertexShaderSource =
+            `attribute vec3 a_coords;
+            attribute vec3 a_colors;
+            uniform mat4 u_ModelViewMatrix;
+            uniform mat4 u_ProjectionMatrix;
+            varying vec3 v_color;
+            
+            void main() {
+                gl_Position = u_ProjectionMatrix * u_ModelViewMatrix * vec4(a_coords, 1.0);
+                v_color = a_colors;
+            }`;
+
+        var fragmentShaderSource =
+            `precision mediump float;
+            varying vec3 v_color;
+            void main() {
+                gl_FragColor = vec4(v_color, 1.0);
+            }`;
+
+        var gl;
+        var a_coords_location;
+        var a_coords_buffer;
+        var a_colors_location;
+        var a_colors_buffer;
+        var bufferInd;
+
+        var u_modelViewMatrix_location;
+        var u_projectionMatrix_location;
+
+        var cubes = [];
+
+        var thetaX = 30;
+        var thetaY = 45;
+        var eyeX = 0.0;
+        var eyeY = 0.0;
+        var eyeZ = 5.0;
+
+        function createCube(color) {
+            var cube = {
+                coords: new Float32Array([
+                    -0.5, -0.5, 0.5,  0.5, -0.5, 0.5,  0.5, 0.5, 0.5,  -0.5, 0.5, 0.5,
+                    -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5, 0.5, -0.5,  -0.5, 0.5, -0.5,
+                    -0.5, 0.5, -0.5,  -0.5, 0.5, 0.5,  0.5, 0.5, 0.5,  0.5, 0.5, -0.5,
+                    -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5, -0.5, 0.5,  -0.5, -0.5, 0.5,
+                    0.5, -0.5, -0.5,  0.5, 0.5, -0.5,  0.5, 0.5, 0.5,  0.5, -0.5, 0.5,
+                    -0.5, -0.5, -0.5,  -0.5, -0.5, 0.5,  -0.5, 0.5, 0.5,  -0.5, 0.5, -0.5
+                ]),
+                colors: new Float32Array([
+                    color[0], color[1], color[2],  color[0], color[1], color[2],
+                    color[0], color[1], color[2],  color[0], color[1], color[2],
+                    color[0], color[1], color[2],  color[0], color[1], color[2],
+                    color[0], color[1], color[2],  color[0], color[1], color[2],
+                    color[0], color[1], color[2],  color[0], color[1], color[2],
+                    color[0], color[1], color[2],  color[0], color[1], color[2]
+                ])
+            };
+
+            cubes.push(cube);
+        }
+
+        function generateCubes() {
+            for (let i = 0; i < 30; i++) {
+                let color = [Math.random(), Math.random(), Math.random()];
+                createCube(color);
+            }
+        }
+
+        function draw() {
+            var rotateMatX = new Float32Array([
+                1.0, 0.0, 0.0, 0.0,
+                0.0, Math.cos(thetaX), Math.sin(thetaX), 0.0,
+                0.0, -Math.sin(thetaX), Math.cos(thetaX), 0.0,
+                0.0, 0.0, 0.0, 1.0
+            ]);
+
+            var rotateMatY = new Float32Array([
+                Math.cos(thetaY), 0.0, -Math.sin(thetaY), 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                Math.sin(thetaY), 0.0, Math.cos(thetaY), 0.0,
+                0.0, 0.0, 0.0, 1.0
+            ]);
+
+            var scaleMat = new Float32Array([
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                0.0, 0.0, 0.0, 1.0
+            ]);
+
+            var transMat = new Float32Array([
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                0.1, 0.3, -3.0, 1.0
+            ]);
+
+            var basisMat = new Float32Array([
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 0, 1
+            ]);
+
+            var eyeMat = new Float32Array([
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                -eyeX, -eyeY, -eyeZ, 1
+            ]);
+
+            var aspect = 1.0;
+            var fov = 75.0;
+            var far = 10.0;
+            var near = 1.0;
+
+            var pa = 1.0 / (aspect * Math.tan((fov / 2) * Math.PI / 180));
+            var pb = 1.0 / (Math.tan((fov / 2) * Math.PI / 180));
+            var pc = -(far + near) / (far - near);
+            var pd = -(2.0 * far * near) / (far - near);
+
+            var persMat = new Float32Array([
+                pa, 0.0, 0.0, 0.0,
+                0.0, pb, 0, 0.0,
+                0.0, 0.0, pc, -1.0,
+                0.0, 0.0, pd, 0.0
+            ]);
+
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, a_coords_buffer);
+            gl.bufferData(gl.ARRAY_BUFFER, cubes[0].coords, gl.STATIC_DRAW);
+            gl.vertexAttribPointer(a_coords_location, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(a_coords_location);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, a_colors_buffer);
+            gl.bufferData(gl.ARRAY_BUFFER, cubes[0].colors, gl.STATIC_DRAW);
+            gl.vertexAttribPointer(a_colors_location, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(a_colors_location);
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufferInd);
+
+            for (let i = 0; i < cubes.length; i++) {
+                let cube = cubes[i];
+
+                var modelViewMatrix = new Float32Array(rotateMatX);
+                multiplyMatrix(modelViewMatrix, rotateMatY);
+                multiplyMatrix(modelViewMatrix, scaleMat);
+                multiplyMatrix(modelViewMatrix, transMat);
+                multiplyMatrix(modelViewMatrix, basisMat);
+                multiplyMatrix(modelViewMatrix, eyeMat);
+
+                gl.uniformMatrix4fv(u_modelViewMatrix_location, false, modelViewMatrix);
+                gl.uniformMatrix4fv(u_projectionMatrix_location, false, persMat);
+
+                gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_BYTE, 0);
+            }
+        }
+
+        function multiplyMatrix(a, b) {
+            var temp = new Float32Array(16);
+            for (var i = 0; i < 4; i++) {
+                for (var j = 0; j < 4; j++) {
+                    temp[i * 4 + j] = 0;
+                    for (var k = 0; k < 4; k++) {
+                        temp[i * 4 + j] += a[i * 4 + k] * b[k * 4 + j];
+                    }
+                }
+            }
+            for (var i = 0; i < 16; i++) {
+                a[i] = temp[i];
+            }
+        }
+
+        function createProgram(gl, vertexShaderSource, fragmentShaderSource) {
+            var vsh = gl.createShader(gl.VERTEX_SHADER);
+            gl.shaderSource(vsh, vertexShaderSource);
+            gl.compileShader(vsh);
+
+            var fsh = gl.createShader(gl.FRAGMENT_SHADER);
+            gl.shaderSource(fsh, fragmentShaderSource);
+            gl.compileShader(fsh);
+
+            var prog = gl.createProgram();
+            gl.attachShader(prog, vsh);
+            gl.attachShader(prog, fsh);
+            gl.linkProgram(prog);
+
+            return prog;
+        }
+
+        function initGL() {
+            var prog = createProgram(gl, vertexShaderSource, fragmentShaderSource);
+            gl.useProgram(prog);
+
+            a_coords_location = gl.getAttribLocation(prog, "a_coords");
+            a_coords_buffer = gl.createBuffer();
+
+            a_colors_location = gl.getAttribLocation(prog, "a_colors");
+            a_colors_buffer = gl.createBuffer();
+
+            bufferInd = gl.createBuffer();
+
+            u_modelViewMatrix_location = gl.getUniformLocation(prog, "u_ModelViewMatrix");
+            u_projectionMatrix_location = gl.getUniformLocation(prog, "u_ProjectionMatrix");
+        }
+
+        function init() {
+            var canvas = document.getElementById("webglcanvas");
+            gl = canvas.getContext("webgl");
+
+            generateCubes();
+
+            initGL();
+            draw();
+        }
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'ArrowUp') {
+                eyeZ -= 0.1;
+            } else if (event.key === 'ArrowDown') {
+                eyeZ += 0.1;
+            }
+
+            draw();
+        });
+
+        document.addEventListener('click', function () {
+            for (let i = 0; i < cubes.length; i++) {
+                let cube = cubes[i];
+                cube.colors = new Float32Array([
+                    Math.random(), Math.random(), Math.random(),
+                    Math.random(), Math.random(), Math.random(),
+                    Math.random(), Math.random(), Math.random(),
+                    Math.random(), Math.random(), Math.random(),
+                    Math.random(), Math.random(), Math.random(),
+                    Math.random(), Math.random(), Math.random(),
+                    Math.random(), Math.random(), Math.random(),
+                    Math.random(), Math.random(), Math.random(),
+                    Math.random(), Math.random(), Math.random(),
+                    Math.random(), Math.random(), Math.random(),
+                    Math.random(), Math.random(), Math.random(),
+                    Math.random(), Math.random(), Math.random()
+                ]);
+            }
+
+            draw();
+        });
+
+        init();
+    </script>
+</body>
+</html>
